@@ -1,0 +1,180 @@
+Program.Sub.ScreenSU.Start
+gui.F_Over/Under..create
+gui.F_Over/Under..caption("Over/Under %")
+gui.F_Over/Under..size(3135,1845)
+gui.F_Over/Under..position(0,0)
+gui.F_Over/Under..event(unload,f_over/under_unload)
+gui.F_Over/Under..alwaysontop(False)
+gui.F_Over/Under..fontname("Arial")
+gui.F_Over/Under..fontsize(8)
+gui.F_Over/Under..forecolor(0)
+gui.F_Over/Under..fontstyle(,,,,)
+gui.F_Over/Under..BackColor(-2147483633)
+gui.F_Over/Under..controlbox(True)
+gui.F_Over/Under..maxbutton(True)
+gui.F_Over/Under..minbutton(True)
+gui.F_Over/Under..mousepointer(0)
+gui.F_Over/Under..moveable(True)
+gui.F_Over/Under..sizeable(False)
+gui.F_Over/Under..ShowInTaskBar(True)
+gui.F_Over/Under..titlebar(True)
+gui.F_Over/Under.txtOver.create(textbox,"",True,1215,300,0,200,400,True,0,Arial,8,-2147483643,1)
+gui.F_Over/Under.txtOver.numericonly(2)
+gui.F_Over/Under.txtOver.maxLength(4)
+gui.F_Over/Under.txtUnder.create(textbox,"",True,1215,300,0,1500,400,True,0,Arial,8,-2147483643,1)
+gui.F_Over/Under.txtUnder.numericonly(2)
+gui.F_Over/Under.txtUnder.maxLength(4)
+gui.F_Over/Under.cmdSave.create(button)
+gui.F_Over/Under.cmdSave.caption("Save")
+gui.F_Over/Under.cmdSave.visible(True)
+gui.F_Over/Under.cmdSave.size(1000,375)
+gui.F_Over/Under.cmdSave.zorder(0)
+gui.F_Over/Under.cmdSave.position(200,800)
+gui.F_Over/Under.cmdSave.enabled(True)
+gui.F_Over/Under.cmdSave.fontname("Arial")
+gui.F_Over/Under.cmdSave.fontsize(8)
+gui.F_Over/Under.cmdSave.event(click,cmdsave_click)
+gui.F_Over/Under.lblOver.create(label,"Over %",True,900,255,1,200,200,True,0,Arial,8,-2147483633,0)
+gui.F_Over/Under.lblUnder.create(label,"Under %",True,1935,255,1,1500,200,True,0,Arial,8,-2147483633,0)
+
+
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Coded by: Melinda Keyes
+'Project Start Date: 6/27/2011
+'Hooks:
+'  14370	14350 14384
+' Mod Date: 02/07/2012
+' by RRC
+' Mod Date: 01/03/2019
+' by PEG
+'Notes:
+'  This program should be hooked to the Customer master screen(14350), the Script3 button(14380) and Presave (14384) of the Customer master screen.
+' (Accounts Recievable > File > Customers)
+'  The button is renamed to "Over/Under %". When selected it displays a screen with two text boxes,
+'  one labeled "Over %", the other "Under %". It will allow the user to enter a number, and once selected,
+'  save the information to a table. The table will store: Customer ID, Over, Under.
+' using Hook 14384 It will save default values 10% and 10% if the table doesn't have the customer id when click Save
+' PEG Moved functionality from Script2 button to Script3 at the request of the customer.
+
+Variable.Local.sCustomer.Declare(String)
+Variable.Local.sQuery.Declare(String)
+
+'When opening the Customer master screen, change the text of the script 2 button
+Function.Intrinsic.Control.If(Variable.Caller.Hook,=,14350)
+	Variable.Passed.000203.Set("Over/Under %")
+	Function.Intrinsic.Control.End
+Function.Intrinsic.Control.EndIf
+
+'IF there is a customer ID entered try to load previous data from the database if there is any, else fill with zeros
+Function.Intrinsic.Control.If(Variable.Caller.Hook,=,14380)
+	V.Local.sCustomer.Set(Variable.Passed.000002)
+	F.Intrinsic.Control.If(Variable.Local.sCustomer,<>,"")
+		Function.Intrinsic.String.Concat("SELECT * FROM ATG_4095_Ship_Prcnt WHERE Customer_ID = '",Variable.Local.sCustomer,"'",Variable.Local.sQuery)
+		Function.ODBC.Connection!conX.OpenConnection(Variable.Ambient.PDSN,Variable.Ambient.PUser,Variable.Ambient.PPass)
+		Function.ODBC.Connection!conX.OpenLocalRecordsetRO("rstPercents",Variable.Local.sQuery)
+		Function.Intrinsic.Control.If(Variable.ODBC.conX!rstPercents.EOF,<>,True)
+			Gui.F_Over/Under.txtOver.Text(Variable.ODBC.conX!rstPercents.FieldValTrim!Over)
+			Gui.F_Over/Under.txtUnder.Text(Variable.ODBC.conX!rstPercents.FieldValTrim!Under)
+		Function.Intrinsic.Control.Else
+			Gui.F_Over/Under.txtOver.Text("0")
+			Gui.F_Over/Under.txtUnder.Text("0")
+		Function.Intrinsic.Control.EndIf
+		Function.ODBC.conX!rstPercents.Close
+		Gui.F_Over/Under..Show
+	Function.Intrinsic.Control.Else
+		Function.Intrinsic.UI.Msgbox("Please enter a customer ID.")
+		Function.Intrinsic.Control.End
+	Function.Intrinsic.Control.EndIf
+F.Intrinsic.Control.EndIf
+
+'When click on Pres-Save button on the Customer master screen
+Function.Intrinsic.Control.If(Variable.Caller.Hook,=,14384)
+	F.Intrinsic.Control.CallSub(F_savedefault)
+F.Intrinsic.Control.EndIf
+
+Program.Sub.Main.End
+
+program.sub.cmdsave_click.start
+'Gather infomation from the screens and write them to the database
+Variable.Local.iOver.Declare(Long)
+Variable.Local.iUnder.Declare(Long)
+Variable.Local.sCustID.Declare(String)
+Variable.Local.sQuery.Declare(String)
+
+'Store information from the screen
+Variable.Local.iOver.Set(Variable.Screen.F_Over/Under!txtOver.Text)
+Variable.Local.iUnder.Set(Variable.Screen.F_Over/Under!txtUnder.Text)
+Variable.Local.sCustID.Set(Variable.Passed.000002)
+
+Function.Intrinsic.String.Concat("SELECT * FROM ATG_4095_Ship_Prcnt WHERE Customer_ID = '",Variable.Local.sCustID,"'",Variable.Local.sQuery)
+
+'If there is already shipping percentage information for this customer, overwrite it
+Function.ODBC.Connection!conX.OpenLocalRecordsetRW("rstPercents",Variable.Local.sQuery)
+Function.Intrinsic.Control.If(Variable.ODBC.conX!rstPercents.EOF,<>,True)
+	Function.ODBC.conX!rstPercents.Set!Customer_ID(Variable.Local.sCustID)
+	Function.ODBC.conX!rstPercents.Set!Over(Variable.Local.iOver)
+	Function.ODBC.conX!rstPercents.Set!Under(Variable.Local.iUnder)
+'If there is no information for this customer's shipping percentages, add a new record
+Function.Intrinsic.Control.Else
+	Function.ODBC.conX!rstPercents.AddNew
+	Function.ODBC.conX!rstPercents.Set!Customer_ID(Variable.Local.sCustID)
+	Function.ODBC.conX!rstPercents.Set!Over(Variable.Local.iOver)
+	Function.ODBC.conX!rstPercents.Set!Under(Variable.Local.iUnder)
+Function.Intrinsic.Control.EndIf
+
+'Update and close the recordset
+Function.ODBC.conX!rstPercents.Update
+Function.ODBC.conX!rstPercents.Close
+
+'Exit the program
+Function.Intrinsic.Control.CallSub(F_over/under_unload)
+
+program.sub.cmdsave_click.end
+
+program.sub.f_over/under_unload.start
+'Close connections to the database and end the program
+Function.ODBC.Connection!conX.Close
+Function.Intrinsic.Control.End
+
+program.sub.f_over/under_unload.end
+
+Program.Sub.f_savedefault.Start
+'Gather infomation from the screens and write them to the database
+Variable.Local.sCustID.Declare(String)
+Variable.Local.sQuery.Declare(String)
+
+'Store information from the screen
+Variable.Local.sCustID.Set(Variable.Passed.000002)
+F.ODBC.Connection!conX.OpenConnection(Variable.Ambient.PDSN,Variable.Ambient.PUser,Variable.Ambient.PPass)
+
+F.Intrinsic.String.Concat("SELECT * FROM ATG_4095_Ship_Prcnt WHERE Customer_ID = '",Variable.Local.sCustID,"'",Variable.Local.sQuery)
+
+'If there isn't shipping percentage add default values (10% and 10%)
+F.ODBC.Connection!conX.OpenLocalRecordsetRW("rstPercents",Variable.Local.sQuery)
+F.Intrinsic.Control.If(Variable.ODBC.conX!rstPercents.EOF,=,True)
+	F.ODBC.conX!rstPercents.AddNew
+	F.ODBC.conX!rstPercents.Set!Customer_ID(Variable.Local.sCustID)
+	F.ODBC.conX!rstPercents.Set!Over(10)
+	F.ODBC.conX!rstPercents.Set!Under(10)
+F.Intrinsic.Control.EndIf
+
+'Update and close the recordset
+F.ODBC.conX!rstPercents.Update
+F.ODBC.conX!rstPercents.Close
+
+'Exit the program
+Function.ODBC.Connection!conX.Close
+Function.Intrinsic.Control.End
+
+
+
+
+Program.Sub.f_savedefault.End
+
+
