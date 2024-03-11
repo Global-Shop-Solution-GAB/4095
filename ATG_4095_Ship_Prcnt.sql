@@ -1,0 +1,4 @@
+CREATE TABLE "ATG_4095_Ship_Prcnt"(
+ "Customer_ID" CHAR(10) NOT NULL ,
+ "Over" DOUBLE NOT NULL ,
+ "Under" DOUBLE NOT NULL);
