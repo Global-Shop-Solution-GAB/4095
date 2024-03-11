@@ -1,0 +1,156 @@
+Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Coded by: Melinda Keyes
+'Project Start Date: 6/27/2011
+'Hooks:
+'  28530
+'Notes:
+'  This GAB program should be hooked to the pre-save hook on the Shipping & Recieving > Transactions > Shipments > New > Shipments New screen. (28530)
+'  When the user goes to save the shipment, the program will use the table created from ATG_SHIPPING_PERCENTAGES.gas (ATG_CUST_SHIP_PRCNT) to
+'  determine if the shipment quantity is over or under the allowed amount for the customer on the order.
+'
+'  The number from the other program will be used as a percentage to calculate the total quantity rounded to the nearest one.
+'  These two numbers will be subtracted and added to the total order quantity found on the sales order in ORDER_LINES.
+'  This will create a range of the minimum amount and the maximum amount that can be shipped for that line item.
+'  Any previous shipments will be summed from ORDER_HIST_LINE, along with the current shipment to see if the total quantity meets the minimum
+'  or does not exceed the maximum allowable by the customer.
+'
+'  If any of the lines are found to be over or under by line item, the program will ask "Is this an authorized partial shipment?".
+'  If the user hits "No", the program will override and return to the shipments screen without saving the packing list.
+'  If the user hits "Yes", the order will be allowed to continue as normal.
+
+Variable.Global.sCustomerID.Declare(String)
+Variable.Global.iOver.Declare(Long)
+Variable.Global.iUnder.Declare(Long)
+Variable.Global.fOver.Declare(Float)
+Variable.Global.fUnder.Declare(Float)
+Variable.Global.bPartial.Declare(Boolean)
+
+Variable.Local.sQuery.Declare(String)
+Variable.Local.iReturn.Declare(Long)
+Variable.Local.iRows.Declare(Long)
+Variable.Local.iCounter.Declare(Long)
+Variable.Local.sRow.Declare(String)
+
+Variable.Global.sCustomerID.Set(Variable.Passed.000204)
+Variable.Global.bPartial.Set(False)
+
+'Get the over and under percentages for this customer from the database
+Function.Intrinsic.String.Concat("SELECT * FROM ATG_4095_Ship_Prcnt WHERE Customer_ID = '",Variable.Global.sCustomerID,"'",Variable.Local.sQuery)
+Function.ODBC.Connection!conX.OpenConnection(Variable.Ambient.PDSN,Variable.Ambient.PUser,Variable.Ambient.PPass)
+Function.ODBC.Connection!conX.OpenLocalRecordsetRO("rstPercents",Variable.Local.sQuery)
+Function.Intrinsic.Control.If(Variable.ODBC.conX!rstPercents.EOF,<>,True)
+	Variable.Global.iOver.Set(Variable.ODBC.conX!rstPercents.FieldValTrim!Over)
+	Function.Intrinsic.Math.Mult(Variable.Global.iOver,0.01,Variable.Global.fOver)
+	Variable.Global.iUnder.Set(Variable.ODBC.conX!rstPercents.FieldValTrim!Under)
+	Function.Intrinsic.Math.Mult(Variable.Global.iUnder,0.01,Variable.Global.fUnder)
+'If there is no information on customer shipping percentages in the database, prompt the user for further action
+Function.Intrinsic.Control.Else
+	Function.Intrinsic.UI.Msgbox("No record of customer's shipping percentage preferences. Do you wish to continue?","Warning",4,Variable.Local.iReturn)
+	'If the user wants to continue with the order without checking percentage preferences, exit this program
+	Function.Intrinsic.Control.If(Variable.Local.iReturn,=,6)
+		Function.ODBC.conX!rstPercents.Close
+		Function.Intrinsic.Control.End
+	'If the user does not wish to continue, override the saving of the packing list and exit the program
+	Function.Intrinsic.Control.Else
+		Variable.Passed.777777.Set(1)
+		Function.ODBC.conX!rstPercents.Close
+		Function.Intrinsic.Control.End
+	Function.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndIf
+Function.ODBC.conX!rstPercents.Close
+
+'The information needed from the ORDER_LINES table is placed in the BDF on the screen, this is where we'll pull the information
+Function.Intrinsic.BDF.Load("AUX001","AUX001")
+Function.Intrinsic.BDF.ReadRowCount("AUX001",Variable.Local.iRows)
+Function.Intrinsic.Math.Sub(Variable.Local.iRows,1,Variable.Local.iRows)
+
+'Loop through each order line and search for partial shipments
+Function.Intrinsic.Control.For(Variable.Local.iCounter,0,Variable.Local.iRows,1)
+	Function.Intrinsic.BDF.ReadRow("AUX001",Variable.Local.iCounter,Variable.Local.sRow)
+	Function.Intrinsic.Control.CallSub(Check_quantities,"sRow",Variable.Local.sRow)
+Function.Intrinsic.Control.Next(Variable.Local.iCounter)
+
+
+'If a partial shipment is found outside the approved over/under %, ask the user if this partial shipment is authorized
+Function.Intrinsic.Control.If(Variable.Global.bPartial,=,True)
+	Function.Intrinsic.UI.Msgbox("Is this an authorized partial shipment?","Partial Shipment Found",4,Variable.Local.iReturn)
+	'if unauthorized, override the saving of the packing list and exit the program
+	Function.Intrinsic.Control.If(Variable.Local.iReturn,=,7)
+		Variable.Passed.777777.Set(1)
+	Function.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndIf
+
+Program.Sub.Main.End
+
+Program.Sub.Check_Quantities.Start
+'For each order line, determine if the quantities are within the customer specified range of acceptable partial shipments.
+Variable.Local.sRow.Declare(String)
+Variable.Local.iOrder.Declare(Long)
+Variable.Local.iQtyShipped.Declare(Long)
+Variable.Local.iQtyOrdered.Declare(Long)
+Variable.Local.iMaxQty.Declare(Long)
+Variable.Local.iMinQty.Declare(Long)
+Variable.Local.fMaxQty.Declare(Float)
+Variable.Local.fMinQty.Declare(Float)
+Variable.Local.sQuery.Declare(String)
+
+'Split each order line into specific fields
+Variable.Local.sRow.Set(Variable.Args.sRow)
+Function.Intrinsic.String.Split(Variable.Local.sRow,"|~|",Variable.Local.sRow)
+
+'Format values to conform with those of the database and store in local variables
+Function.Intrinsic.String.Format(Variable.Local.sRow(0),0000000,Variable.Local.sRow(0))
+Function.Intrinsic.String.Format(Variable.Local.sRow(1),000,Variable.Local.sRow(1))
+
+Variable.Local.iOrder.Set(Variable.Local.sRow(0))
+Variable.Local.iQtyOrdered.Set(Variable.Local.sRow(2))
+Variable.Local.iQtyShipped.Set(Variable.Local.sRow(3))
+
+'Make sure there are quantities specified on the order in order to calculate the range
+Function.Intrinsic.Control.If(Variable.Local.iQtyOrdered,<>,0)
+	Function.Intrinsic.Control.If(Variable.Local.iQtyShipped,<>,0)
+		'Multiply the quantity ordered by the customer's specified over percentage to get the max number of additional items allowed to be shipped
+		Function.Intrinsic.Math.Mult(Variable.Local.iQtyOrdered,Variable.Global.fOver,Variable.Local.fMaxQty)
+		'Multiply the quantity ordered by the customer's specified under percentage to get the min number of items allowed to be shipped
+		Function.Intrinsic.Math.Mult(Variable.Local.iQtyOrdered,Variable.Global.fUnder,Variable.Local.fMinQty)
+		'Add the max number of additional items to the quantity ordered to give the max number of items allowed per shipment
+		Function.Intrinsic.Math.Add(Variable.Local.iQtyOrdered,Variable.Local.fMaxQty,Variable.Local.fMaxQty)
+		'Subtract the min number of items from the quantity ordered to give the min number of items allowed per shipment
+		Function.Intrinsic.Math.Sub(Variable.Local.iQtyOrdered,Variable.Local.fMinQty,Variable.Local.fMinQty)
+		'Round these values to the nearest digit
+		Function.Intrinsic.Math.Round(Variable.Local.fMinQty,0,Variable.Local.fMinQty)
+		Function.Intrinsic.Math.Round(Variable.Local.fMaxQty,0,Variable.Local.fMaxQty)
+
+		'Search the order history database to see if items were shipped previously
+		Function.Intrinsic.String.Concat("SELECT QTY_SHIPPED FROM ORDER_HIST_LINE WHERE CUSTOMER =  '",Variable.Global.sCustomerID,"' AND ORDER_NO = '",Variable.Local.sRow(0),"' AND ORDER_LINE = '",Variable.Local.sRow(1),"0'",Variable.Local.sQuery)
+		Function.ODBC.Connection!conX.OpenLocalRecordsetRO("rstShipments",Variable.Local.sQuery)
+		'If there were previous partial shipments, add these quantities to the total of shipped items
+		Function.Intrinsic.Control.If(Variable.ODBC.conX!rstShipments.EOF,<>,True)
+			Function.Intrinsic.Control.DoUntil(Variable.ODBC.conX!rstShipments.EOF,=,True)
+				Function.Intrinsic.Math.Add(Variable.Local.iQtyShipped,Variable.ODBC.conX!rstShipments.FieldValTrim!QTY_SHIPPED,Variable.Local.iQtyShipped)
+				F.ODBC.conX!rstShipments.MoveNext
+			Function.Intrinsic.Control.Loop
+		Function.Intrinsic.Control.EndIf
+		Function.ODBC.conX!rstShipments.Close
+
+		'If there are fewer than the minimum number of allowed items being shipped, mark this as a partial order
+		Function.Intrinsic.Control.If(Variable.Local.iQtyShipped,<,Variable.Local.fMinQty)
+			Variable.Global.bPartial.Set(True)
+		'If there are more than the maximum number of allowed items being shipped, mark this as a partial order
+		Function.Intrinsic.Control.ElseIf(Variable.Local.iQtyShipped,>,Variable.Local.fMaxQty)
+			Variable.Global.bPartial.Set(True)
+		Function.Intrinsic.Control.EndIf
+
+	Function.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndIf
+
+Program.Sub.Check_Quantities.End
+
+
